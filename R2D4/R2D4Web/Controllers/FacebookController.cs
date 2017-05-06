@@ -1,7 +1,10 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Threading.Tasks;
 using System.Web.Mvc;
+using GlobalResources;
 using Newtonsoft.Json;
 using R2D4Web.Enums;
 using R2D4Web.Models;
@@ -15,29 +18,52 @@ namespace R2D4Web.Controllers
             var hub = new Hub(Request.QueryString);
 
             if (hub.Mode == HubMode.Subscribe &&
-                hub.VerifyToken == Config.VerifyToken)
+                hub.VerifyToken == FacebookConfig.VerifyToken)
             {
                 return Json(hub.Challenge, JsonRequestBehavior.AllowGet);
             }
             return HttpNotFound();
         }
 
-        public ActionResult Test(BotRequest request)
-        {
-            return Json(request, JsonRequestBehavior.AllowGet);
-        }
-
-        public class TestRequest
-        {
-            public string Name { get; set; }
-            public string Value { get; set; }
-        }
-
+        [ActionName("receive")]
         [HttpPost]
         public ActionResult ReceivePost(BotRequest request)
         {
-            Task.Factory.StartNew(() => { });
+            Task.Factory.StartNew(() =>
+            {
+                foreach (var entry in request.Entry)
+                {
+                    foreach (var message in entry.Messaging)
+                    {
+                        if (string.IsNullOrWhiteSpace(message?.Message?.Text))
+                            continue;
+
+                        var msg = "You said: " + message.Message.Text;
+                        var json = $@" {{recipient: {{  id: {message.Sender.Id}}},message: {{text: ""{msg}"" }}}}";
+                        PostRaw(FacebookConfig.AccessTokenUrl + FacebookConfig.PageAccessToken, json);
+                    }
+                }
+            });
             return new HttpStatusCodeResult(HttpStatusCode.OK);
+        }
+        private string PostRaw(string url, string data)
+        {
+            var request = (HttpWebRequest)WebRequest.Create(url);
+            request.ContentType = "application/json";
+            request.Method = "POST";
+            using (var requestWriter = new StreamWriter(request.GetRequestStream()))
+            {
+                requestWriter.Write(data);
+            }
+
+            var response = (HttpWebResponse)request.GetResponse();
+            if (response == null)
+                throw new InvalidOperationException("GetResponse returns null");
+
+            using (var sr = new StreamReader(response.GetResponseStream()))
+            {
+                return sr.ReadToEnd();
+            }
         }
     }
 
